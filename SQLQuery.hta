@@ -1,0 +1,196 @@
+<html>
+<head>
+<title>SQL Query 1.5b</title>
+<HTA:APPLICATION 
+     APPLICATIONNAME="SQL query"
+     SCROLL="yes"
+     SINGLEINSTANCE="no"
+>
+</head>
+
+<script language="VBScript">
+'Autor: Piotr Marzec   ,  AIG Bank Polska SA, 06/12/2010
+'ver: 1.0
+'ver: 1.1 16/11/2011 add:
+'	receive query from dbo.ComarchStation, dbo.ListInstalledApplications, dbo.LastLogonUsers
+'	send query using enter pressing enter key
+'	add conditionals prevent to send wrong query to database
+'ver: 1.2 18/01/2013 add:
+'	shortcut keys
+'ver: 1.5 06.03.2015
+'	add checking when expire users password in Active Directory
+'ver 1.5a 06.03.2015
+'	change address server to alias name
+'ver 1.5b 09.03.2015
+'	change address server from pl.aigcfg.net to in.santanderconsumer.pl and
+'	change authentication from local sql account to domain
+
+Option Explicit
+'On Error Resume Next
+
+Dim objCONNECTION, objRECORDSET, colRECORDSET
+Dim objSearchTable, objSearchType
+Dim searchTable, searchString, searchType
+Dim sqlQuery, strHTML
+Dim usrStr, User, ex_a, daysLeft
+
+Sub checkEnter
+    With Document.ParentWindow.Event
+        If .KeyCode = 13 Then
+            subSearch
+        Else
+            .CancelBubble = False
+            .ReturnValue = True
+        End If
+    End With
+End Sub
+
+Sub subSearch
+    searchString = Replace(searchValue.Value, "*", "%")
+    For Each objSearchTable In wyszukaj_w
+        If objSearchTable.checked Then
+            searchTable = objSearchTable.Value
+        End If
+    Next    
+    For Each objSearchType In wyszukaj_po
+        If objSearchType.checked Then
+            If objSearchType.Value = "LogonUser" Then
+                searchString = "%" & searchString
+            End If
+            searchType = objSearchType.Value
+        End If
+    Next
+    If Not (searchTable = "" Or searchString = "" Or searchType = "") Then
+	Select Case searchTable
+		Case "expire_check"
+			If searchType = "LogonUser" Then
+				searchString = Right(searchString, Len(searchString) -1)
+				usrStr = "WinNT://PL/" & searchString & ",user"
+				Set User=GetObject(usrStr)
+				ex_a=user.passwordexpirationdate
+				If ex_a="" Then
+					strHTML = "Empty Vaule"
+				Else
+					daysLeft=int(ex_a-now)
+					If (daysleft>=0 and daysLeft<=100) Then 
+						strHTML = "Has³o dla " & UCase(searchString) & " wygaœnie za " & daysLeft & " dni (" & ex_a & ")."
+					ElseIf daysleft<0  Then
+						strHTML = "Has³o dla " & UCase(searchString) & " wygas³o " & ex_a & "."
+					End If
+				End If
+			Else
+				strHTML = "Zapytanie tylko po loginie u¿ytkownika."
+			End If
+            Case "dbo.ListInstalledApplications"
+                If searchType = "Name" Then
+                    sqlQuery = "select DisplayName, Publisher from " & searchTable & " where DeviceID like '" & searchString &_
+                               "' and not (displayName like '%update%' or displayName like '%aktualizacja%' or displayName like '%hotfix%' " &_ 
+                               "or displayName like '%poprawka%' or displayName like '%service pack%' or displayName like '%net framework%') order by DisplayName"
+                    reportFromSQL
+                Else
+                    strHTML = "Zapytanie tylko po nazwie komputera."
+                End If
+            Case "dbo.LastLogonUsers"
+                If searchType = "LogonUser" Then
+                    sqlQuery = "Select * from " & searchTable & " where UserID like '" & searchString & "' order by Date desc"
+                    reportFromSQL
+                ElseIf searchType = "Name" Then
+                    sqlQuery = "Select * from " & searchTable & " where DeviceID like '" & searchString & "' order by Date desc"
+                    reportFromSQL
+                Else
+                    strHTML = "Zapytanie tylko po nazwie komputera lub loginie u¿ytkownika."
+                End If
+            Case Else
+                If searchType = "LogonUser" Then
+                    sqlQuery = "Select Date, LocalDate, Name, LogonUser, SerialNumber, IP from " & searchTable & " where " & searchType & " like '" & searchString & "' order by Date desc"
+                    reportFromSQL
+                ElseIf searchType = "Mac" Then
+                    sqlQuery = "Select Date, LocalDate, Name, LogonUser, SerialNumber, IP from " & searchTable & " where " & searchType & " like '%" & searchString & "%' order by Date desc"
+                    reportFromSQL
+                Else
+                    sqlQuery = "Select * from " & searchTable & " where " & searchType & " like '" & searchString & "' order by Date desc"
+                    reportFromSQL
+                End If
+        End Select
+        DataArea.InnerHTML = strHTML
+    End If
+End Sub
+
+Sub reportFromSQL
+    strHTML = ""
+    Set objCONNECTION = CreateObject("ADODB.connection")
+    Set objRECORDSET = CreateObject("ADODB.recordset")
+
+    objCONNECTION.Open  "Driver={SQL Server};" &_
+                        "Server=zwt-db.in.santanderconsumer.pl;" &_
+                        "Database=RCPDService;" &_
+                        "Uid=rcpdview;" &_
+                        "Pwd=f673Y50j;"
+			'"Trusted_Connection=Yes;"
+    
+    objRECORDSET.Open sqlQuery, objCONNECTION
+    
+    If objRECORDSET.EOF = True Then
+        strHTML = "Nie mam Tobie nic do wyœwietlenia."
+    Else
+        Do Until objRECORDSET.EOF
+            For Each colRECORDSET In objRECORDSET.Fields               
+                strHTML = strHTML & "<font style=" & chr(34) & "color:green" & chr(34) & ">" & colRECORDSET.Name & " = </font>" & colRECORDSET.Value & "<br />"
+            Next
+                strHTML = strHTML & "<hr />"
+                objRECORDSET.MoveNext
+        Loop
+    End If
+    objRECORDSET.Close
+    objCONNECTION.Close
+    DataArea.InnerHTML = strHTML
+End Sub
+
+Sub subClose
+    self.Close()
+End Sub
+
+Sub subClear
+    DataArea.InnerHTML = ""
+End Sub
+</script>
+
+<body>
+
+<label for ="id_main" accesskey="d"></label>
+<label for="id_app" accesskey="a"></label>
+<label for="id_last" accesskey="l"></label>
+<label for="id_expire" accesskey="p"></label>
+<label for="id_tag" accesskey="t"></label>
+<label for="id_comp" accesskey="n"></label>
+<label for="id_ip" accesskey="i"></label>
+<label for="id_user" accesskey="u"></label>
+<label for="id_cmd" accesskey="s"></label>
+<label for="id_enter" accesskey="c"></label>
+<label for="id_mac" accesskey="m"></label>
+<!--<label for="id_close" accesskey="n"></label>-->
+
+<hr />
+Wyszukaj w:<br />
+<input type="radio" name="wyszukaj_w" value="dbo.Main" id="id_main" checked />[D] obiektach domeny PL<br />
+<input type="radio" name="wyszukaj_w" value="dbo.ComarchStation" />obiektach pomigracyjnych<br />
+<input type="radio" name="wyszukaj_w" value="dbo.ListInstalledApplications" id="id_app" />[A] zainstalowanych aplikacjach (po nazwie komputera)<br />
+<input type="radio" name="wyszukaj_w" value="dbo.LastLogonUsers" id="id_last" />[L] tabeli LastLogonUsers (po nazwie komputera lub loginie u¿ytkownika)<br />
+<input type="radio" name="wyszukaj_w" value="expire_check" id="id_expire" />[P] Wygasanie has³a (po loginie u¿ytkownika) PL<br />
+<br />
+Wyszukaj po:<br />
+<input type="radio" name="wyszukaj_po" value="SerialNumber" id="id_tag" />[T] Service Tag<br />
+<input type="radio" name="wyszukaj_po" value="Name" id="id_comp" />[N] Nazwa komputera<br />
+<input type="radio" name="wyszukaj_po" value="IP" id="id_ip" />[I] Adres IP<br />
+<input type="radio" name="wyszukaj_po" value="LogonUser" checked id="id_user" />[U] Login u¿ytkownika<br />
+<input type="radio" name="wyszukaj_po" value="Mac" id="id_mac" />[M] Adres Mac<p />
+[S]zukany ci¹g:<br />
+<!--<input type="text" name="searchValue" /><p />-->
+<input type="text" onkeydown = checkEnter id ="id_cmd" name="searchValue" /><p />
+<input type="button" value="[C]zego" name="run_button"  onClick="subSearch" id="id_enter">
+<input type="button" value="Czyœæ" name="run_button"  onClick="subClear">
+<input type="button" value="Nara" name="run_button"  onClick="subClose" id="id_close"><hr />
+<span id = "DataArea"></span>
+
+</body>
+</html>
